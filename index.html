@@ -338,8 +338,11 @@
     </div>
 
     <div id="frameWrap" hidden>
-      <iframe id="frame" title="Document"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock"></iframe>
+      <!-- No sandbox attribute: allow-same-origin is required for the blob: URLs that carry
+           styles/images/fonts, and Chrome warns (correctly) that allow-scripts + allow-same-origin
+           can escape the sandbox anyway. The preview is therefore trusted same-origin content —
+           only open files you trust. -->
+      <iframe id="frame" title="Document"></iframe>
     </div>
 
     <div id="fileInfo" hidden>
@@ -448,10 +451,10 @@
       <div class="group">
         <h3>Notes</h3>
         <div class="note">
-          Pages run inside a sandboxed iframe. Scripts, styles, images and fonts are
-          served from <code>blob:</code> URLs built in this page, which Chrome only allows
-          when <code>allow-same-origin</code> is set &mdash; so previewed pages share this
-          page’s origin. Only open files you trust.
+          Pages are rendered from <code>blob:</code> URLs in an iframe that shares this
+          page&rsquo;s origin, so scripts, styles, images and fonts resolve normally.
+          There is no sandbox: a previewed page can reach this page and its storage.
+          Only open files you trust.
         </div>
       </div>
     </div>
@@ -691,9 +694,18 @@
       var a = t.closest('a[href]');
       if (!a) return;
       var h = a.getAttribute('href');
-      if (!isRel(h)) return;
-      e.preventDefault();
-      try { parent.postMessage({type:'htmlviewer:navigate', href: h}, '*'); } catch (_) {}
+      if (isRel(h)) {
+        e.preventDefault();
+        try { parent.postMessage({type:'htmlviewer:navigate', href: h}, '*'); } catch (_) {}
+        return;
+      }
+      /* The frame is not sandboxed, so a target="_top"/"_parent" link would replace the whole
+         viewer. Keep that navigation inside the frame instead (the sandbox used to block it). */
+      var tgt = (a.getAttribute('target') || '').toLowerCase();
+      if (tgt === '_top' || tgt === '_parent') {
+        e.preventDefault();
+        try { location.href = a.href; } catch (_) {}
+      }
     }, true);
   })();`;
 

@@ -28,14 +28,26 @@ Everything runs client-side; no file ever leaves the machine.
    `<style>` blocks and linked stylesheets (with recursive `@import` and `url()` rewriting).
 3. A small nav bridge script is injected as the **first** script in `<head>` so relative
    `<a href>` clicks switch documents inside the same viewer instead of leaving the page.
-4. The document is served from a `blob:` URL in a sandboxed iframe
-   (`allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock`).
+4. The document is served from a `blob:` URL in an iframe **with no `sandbox` attribute**.
 
-`allow-same-origin` is **required**: Chrome only lets a document load `blob:` URLs created by
-its own origin, so without it every stylesheet, image and font in the preview silently fails.
-The trade-off is that previewed pages share this page's origin — treat the preview as you
-would the file itself, and only open files you trust. localStorage/cookies written by a
-preview belong to the viewer's origin.
+### Why no `sandbox` attribute
+
+`blob:` URLs can only be loaded by the document that created them, so a sandboxed iframe
+(which gets an opaque origin) silently fails to load *every* stylesheet, image and font —
+the text still renders, so it looks like nothing is wrong. The only fix is
+`allow-same-origin`, and Chrome deliberately warns about `allow-scripts` +
+`allow-same-origin` ("can escape its sandboxing") because that combination is not a security
+boundary: the preview can reach this page either way. Rather than ship a configuration that
+emits a correct warning about a boundary it does not provide, the attribute is omitted.
+
+Consequences, stated plainly: a previewed page runs same-origin with the viewer. It can touch
+this page's DOM and its `localStorage`/cookies, and scripted `top.location = …` can navigate
+you away. Only open files you trust. The nav bridge does keep `target="_top"`/`"_parent"` link
+clicks inside the frame, which is what the sandbox used to block.
+
+(If you do need true isolation, drop `allow-same-origin` and inline every asset as a
+`data:` URL instead of `blob:` — measured working at 1.5 MB per document, but not at 5 MB,
+so it is not viable for asset-heavy folders.)
 
 ### Why `blob:` and not `srcdoc`
 
@@ -59,12 +71,10 @@ keeps working; nothing is ever thrown into the page.
 
 ## Console messages you may see
 
-- `An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute
-  can escape its sandboxing.` — **expected, deliberate.** Chrome always emits this when those
-  two flags are combined, and `allow-same-origin` is required for `blob:` subresources to
-  load at all. Dropping it silently breaks every stylesheet/image/font; dropping
-  `allow-scripts` breaks scripted decks. The attribute is kept for the restrictions it still
-  enforces (no top-level navigation, no popup escape).
+- No sandbox warning is emitted: the iframe has no `sandbox` attribute at all (see
+  *Why no `sandbox` attribute* above). If you add one back for any reason, Chrome will log
+  `An iframe which has both allow-scripts and allow-same-origin … can escape its sandboxing`,
+  and removing `allow-same-origin` instead breaks every blob-loaded style and image.
 - `Error with Permissions-Policy header: Unrecognized feature: 'run-ad-auction'` (and
   `join-ad-interest-group`, `private-aggregation`, `attribution-reporting`) — **not from this
   page.** GitHub Pages sends no `Permissions-Policy` header, and this file contains none of

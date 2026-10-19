@@ -1,7 +1,11 @@
 # Local verification harness for the viewer itself — not part of the shipped app.
-probe.html
-deck-probe.html
-exp.html
-old.html
-live-check.py
 console-check.py
+deck-probe.html
+exp*.html
+exp.html
+live-check.py
+old.html
+probe.html
+probe2.html
+px-*.png
+px.png
