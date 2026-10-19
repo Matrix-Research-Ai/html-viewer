@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HTML Viewer · Fullscreen</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230b0f17'/%3E%3Cpath d='M6 17V7l6 4 6-4v10' stroke='%234f9cf9' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root{
     --bg:#0b0f17;
@@ -486,6 +487,7 @@
   let entryPath     = null;        // path of the HTML entry inside fileMap
   let singleFileHandle = null;     // FileSystemFileHandle for reload from disk
   let dirHandle        = null;     // FileSystemDirectoryHandle for reload from disk
+  let entryBlobUrl     = null;     // blob: URL of the displayed document
   let zoom             = 1;
   let dragDepth        = 0;
   let hintTimer        = null;
@@ -531,6 +533,10 @@
   }
 
   function revokeAllUrls() {
+    if (entryBlobUrl) {
+      try { URL.revokeObjectURL(entryBlobUrl); } catch (e) {}
+      entryBlobUrl = null;
+    }
     for (const url of syncUrls.values()) {
       try { URL.revokeObjectURL(url); } catch (e) {}
     }
@@ -638,6 +644,40 @@
 
   /* ---------------- HTML processing ---------------- */
   const NAV_SCRIPT_BODY = `(function(){
+    /* A previewed page may call history.replaceState/pushState with an absolute URL.
+       In an about:srcdoc document that throws SecurityError and kills the caller's
+       flow (slide routers do this on every transition). Swallow the failure and fall
+       back to a hash change instead of letting the exception escape. */
+    (function(){
+      /* Chrome refuses to retarget a blob:/about:srcdoc document to any other URL, even a
+         same-origin one — history.replaceState/pushState throw SecurityError. location.hash
+         is always permitted, so fall back to it and keep the page's hash routing alive.
+         (Setting the hash adds a history entry instead of replacing: back/forward then walk
+         through the slides, which is the behaviour users expect from a deck.) */
+      function fallback(url){
+        try {
+          if (typeof url !== 'string' || !url) return;
+          var hash = '';
+          if (url.charAt(0) === '#') hash = url;
+          else {
+            var u = new URL(url, document.baseURI);
+            if (u.origin !== location.origin) return;
+            hash = u.hash;
+          }
+          if (hash && location.hash !== hash) location.hash = hash;
+        } catch (_) {}
+      }
+      function guard(name){
+        var fn = history[name];
+        if (typeof fn !== 'function') return;
+        history[name] = function(state, title, url){
+          try { return fn.apply(history, arguments); }
+          catch (e) { fallback(url); return undefined; }
+        };
+      }
+      guard('replaceState');
+      guard('pushState');
+    })();
     function isRel(h){
       if (!h) return false;
       if (h.charAt(0) === '#') return false;
@@ -724,10 +764,12 @@
       styleEl.textContent = rewriteCssUrls(styleEl.textContent || '', htmlPath);
     }
 
-    // 4. Navigation bridge
+    // 4. Navigation bridge + history guard — injected as the FIRST script in <head> so it
+    // runs before any of the page's own inline scripts can trip over the document URL.
     const scriptEl = doc.createElement('script');
     scriptEl.textContent = NAV_SCRIPT_BODY;
-    (doc.body || doc.documentElement).appendChild(scriptEl);
+    const head = doc.head || doc.documentElement;
+    head.insertBefore(scriptEl, head.firstChild);
 
     return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
   }
@@ -793,7 +835,14 @@
     if (!entryPath) return;
     try {
       const html = await processHtml(entryPath);
-      frame.srcdoc = html;
+      // Serve the document from a blob: URL rather than srcdoc: the frame then has a real
+      // same-origin document URL, so the page's own history.replaceState/pushState and
+      // #fragment deep links work. (about:srcdoc can never be replaced — it throws
+      // SecurityError, which silently breaks slide routers.)
+      if (entryBlobUrl) { try { URL.revokeObjectURL(entryBlobUrl); } catch (e) {} }
+      entryBlobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      frame.removeAttribute('srcdoc');
+      frame.src = entryBlobUrl;
       frameWrap.hidden = false;
       emptyState.hidden = true;
     } catch (e) {

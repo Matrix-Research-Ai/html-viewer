@@ -1,0 +1,5 @@
+# Local verification harness for the viewer itself — not part of the shipped app.
+probe.html
+deck-probe.html
+exp.html
+old.html
