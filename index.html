@@ -338,7 +338,7 @@
 
     <div id="frameWrap" hidden>
       <iframe id="frame" title="Document"
-        sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock"></iframe>
+        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock"></iframe>
     </div>
 
     <div id="fileInfo" hidden>
@@ -447,9 +447,10 @@
       <div class="group">
         <h3>Notes</h3>
         <div class="note">
-          Pages run inside a sandboxed iframe. Scripts run, but
-          <code>localStorage</code>, cookies and same-origin APIs are unavailable.
-          External resources are not affected by the sandbox.
+          Pages run inside a sandboxed iframe. Scripts, styles, images and fonts are
+          served from <code>blob:</code> URLs built in this page, which Chrome only allows
+          when <code>allow-same-origin</code> is set &mdash; so previewed pages share this
+          page’s origin. Only open files you trust.
         </div>
       </div>
     </div>
