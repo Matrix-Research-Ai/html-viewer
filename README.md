@@ -57,6 +57,21 @@ call first, and on failure applies the URL's fragment through `location.hash` wh
 is same-origin (fragment-only URLs are handled directly). Hash routing in previewed decks
 keeps working; nothing is ever thrown into the page.
 
+## Console messages you may see
+
+- `An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute
+  can escape its sandboxing.` — **expected, deliberate.** Chrome always emits this when those
+  two flags are combined, and `allow-same-origin` is required for `blob:` subresources to
+  load at all. Dropping it silently breaks every stylesheet/image/font; dropping
+  `allow-scripts` breaks scripted decks. The attribute is kept for the restrictions it still
+  enforces (no top-level navigation, no popup escape).
+- `Error with Permissions-Policy header: Unrecognized feature: 'run-ad-auction'` (and
+  `join-ad-interest-group`, `private-aggregation`, `attribution-reporting`) — **not from this
+  page.** GitHub Pages sends no `Permissions-Policy` header, and this file contains none of
+  those strings. Those lines are logged for whichever *other* document in the browser received
+  a header naming legacy Privacy Sandbox features that current Chrome has renamed or removed.
+  Check the Console source column / the request's Response Headers to find the culprit.
+
 ## Requirements
 
 The native pickers use the File System Access API, so **Chrome / Edge / Opera on desktop**
