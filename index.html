@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTML Viewer · Fullscreen</title>
+<style>
+  :root{
+    --bg:#0b0f17;
+    --text:#e6edf7;
+    --muted:#93a1b5;
+    --dim:#5d6b80;
+    --accent:#4f9cf9;
+    --border:rgba(255,255,255,.12);
+    --border-strong:rgba(255,255,255,.2);
+    --panel:rgba(18,24,36,.75);
+    --panel-solid:#141a26;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:radial-gradient(1200px 800px at 50% -10%,#16203a 0%,var(--bg) 60%);
+    color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  #viewer{
+    position:fixed; inset:0;
+    display:flex; flex-direction:column;
+  }
+  #viewer:fullscreen,
+  #viewer:-webkit-full-screen,
+  #viewer:-moz-full-screen{ background:#05080f; }
+
+  /* ---------- stage ---------- */
+  #stage{ position:relative; flex:1; overflow:hidden; background:#0d1320; }
+
+  #frameWrap{
+    position:absolute; inset:0;
+    overflow:auto;
+    background:#fff;
+  }
+  #frame{
+    width:100%; height:100%;
+    border:0; display:block;
+    background:#fff;
+  }
+
+  /* ---------- empty state ---------- */
+  #emptyState{
+    position:absolute; inset:0;
+    display:grid; place-items:center;
+    padding:24px;
+    z-index:2;
+  }
+  #emptyState[hidden]{ display:none; }
+  #emptyState .card{
+    max-width:460px; width:100%;
+    padding:32px 28px 26px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:20px;
+    backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+    box-shadow:0 20px 60px rgba(0,0,0,.4);
+    text-align:center;
+  }
+  #emptyState .glyph{
+    width:64px; height:64px;
+    margin:0 auto 18px;
+    display:grid; place-items:center;
+    border-radius:16px;
+    background:linear-gradient(135deg,rgba(79,156,249,.18),rgba(79,156,249,.06));
+    border:1px solid rgba(79,156,249,.3);
+    color:var(--accent);
+  }
+  #emptyState .glyph svg{ width:30px; height:30px; }
+  #emptyState h1{ font-size:20px; font-weight:650; margin:0 0 8px; letter-spacing:-.01em; }
+  #emptyState p{ margin:0 0 20px; color:var(--muted); line-height:1.5; }
+  #emptyState .actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  #emptyState .tip{ margin:18px 0 0; font-size:12px; color:var(--dim); }
+
+  .btn{
+    appearance:none;
+    border:1px solid var(--border-strong);
+    background:rgba(255,255,255,.06);
+    color:var(--text);
+    padding:10px 18px;
+    border-radius:10px;
+    font-size:14px; font-weight:550;
+    cursor:pointer;
+    transition:background .15s,border-color .15s,transform .08s;
+    font-family:inherit;
+  }
+  .btn:hover{ background:rgba(255,255,255,.1); }
+  .btn:active{ transform:scale(.97); }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#0a1220; }
+  .btn.primary:hover{ background:#5da8ff; border-color:#5da8ff; }
+
+  /* ---------- drop overlay ---------- */
+  #dropOverlay{
+    position:absolute; inset:0;
+    z-index:20;
+    display:grid; place-items:center;
+    background:rgba(11,15,23,.7);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+    border:2px dashed var(--accent);
+    pointer-events:none;
+  }
+  #dropOverlay[hidden]{ display:none; }
+  #dropOverlay .dropInner{
+    padding:20px 36px;
+    border-radius:14px;
+    background:rgba(79,156,249,.14);
+    border:1px solid rgba(79,156,249,.4);
+    color:var(--text);
+    font-size:18px; font-weight:600;
+  }
+
+  /* ---------- file info chip ---------- */
+  #fileInfo{
+    position:absolute;
+    top:14px; left:14px;
+    z-index:5;
+    display:flex; align-items:center; gap:8px;
+    padding:7px 12px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    font-size:12.5px;
+    color:var(--text);
+    max-width:calc(100% - 28px);
+    pointer-events:none;
+  }
+  #fileInfo[hidden]{ display:none; }
+  #fileInfo .dot{
+    width:7px; height:7px; border-radius:50%;
+    background:#34d399;
+    box-shadow:0 0 8px rgba(52,211,153,.6);
+    flex-shrink:0;
+  }
+  #fileName{
+    font-weight:550;
+    max-width:260px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #fileMeta{
+    color:var(--muted);
+    padding-left:8px;
+    border-left:1px solid var(--border);
+    white-space:nowrap;
+  }
+
+  /* ---------- toolbar ---------- */
+  #toolbar{
+    position:absolute;
+    left:50%; bottom:20px;
+    transform:translateX(-50%);
+    display:flex; align-items:center; gap:2px;
+    padding:7px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:14px;
+    backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+    box-shadow:0 12px 40px rgba(0,0,0,.5);
+    z-index:10;
+    max-width:calc(100vw - 24px);
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
+  #toolbar::-webkit-scrollbar{ display:none; }
+  #toolbar button{
+    display:grid; place-items:center;
+    width:38px; height:38px; padding:0;
+    border:0; border-radius:9px;
+    background:transparent;
+    color:var(--text);
+    cursor:pointer;
+    transition:background .15s,transform .08s;
+    flex-shrink:0;
+  }
+  #toolbar button:hover{ background:rgba(255,255,255,.1); }
+  #toolbar button:active{ transform:scale(.94); }
+  #toolbar button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  #toolbar button:disabled{ opacity:.35; cursor:not-allowed; }
+  #toolbar svg{ width:18px; height:18px; }
+
+  #zoomLabel{
+    width:auto !important;
+    min-width:56px;
+    padding:0 8px !important;
+    font-size:12.5px;
+    font-variant-numeric:tabular-nums;
+    color:var(--muted);
+    font-weight:500;
+  }
+  #zoomLabel:hover{ color:var(--text); }
+
+  .sep{
+    width:1px; height:22px;
+    background:var(--border);
+    margin:0 5px;
+    flex-shrink:0;
+  }
+
+  #fsBtn .ic-exit{ display:none; }
+  #viewer.is-fullscreen #fsBtn .ic-enter{ display:none; }
+  #viewer.is-fullscreen #fsBtn .ic-exit{ display:block; }
+
+  /* ---------- hint toast ---------- */
+  #hint{
+    position:absolute;
+    top:16px; left:50%;
+    transform:translateX(-50%) translateY(-6px);
+    padding:8px 16px;
+    border-radius:999px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text);
+    font-size:13px;
+    white-space:nowrap;
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    opacity:0;
+    transition:opacity .25s,transform .25s;
+    pointer-events:none;
+    z-index:15;
+    max-width:calc(100vw - 32px);
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  #hint.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  /* ---------- help overlay ---------- */
+  #helpOverlay{
+    position:fixed; inset:0;
+    z-index:50;
+    display:grid; place-items:center;
+    background:rgba(5,8,15,.7);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+    padding:24px;
+  }
+  #helpOverlay[hidden]{ display:none; }
+  #helpOverlay .helpCard{
+    width:100%; max-width:520px;
+    max-height:calc(100vh - 48px);
+    overflow-y:auto;
+    background:var(--panel-solid);
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:26px 26px 22px;
+    box-shadow:0 30px 80px rgba(0,0,0,.6);
+  }
+  #helpOverlay h2{ margin:0 0 4px; font-size:18px; font-weight:650; }
+  #helpOverlay .sub{ margin:0 0 18px; color:var(--muted); font-size:13px; }
+  #helpOverlay .group{ margin-bottom:18px; }
+  #helpOverlay .group:last-child{ margin-bottom:0; }
+  #helpOverlay h3{
+    margin:0 0 8px;
+    font-size:11.5px; font-weight:650;
+    text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted);
+  }
+  #helpOverlay .row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:6px 0;
+    border-bottom:1px solid rgba(255,255,255,.05);
+    font-size:13.5px;
+  }
+  #helpOverlay .row:last-child{ border-bottom:0; }
+  #helpOverlay .row span:last-child{ color:var(--muted); text-align:right; }
+  kbd{
+    display:inline-block;
+    min-width:20px;
+    padding:2px 7px;
+    border-radius:6px;
+    background:rgba(255,255,255,.07);
+    border:1px solid var(--border);
+    border-bottom-width:2px;
+    font-family:inherit;
+    font-size:12px;
+    color:var(--text);
+    text-align:center;
+  }
+  #helpOverlay .note{
+    margin-top:14px;
+    padding:12px 14px;
+    border-radius:10px;
+    background:rgba(79,156,249,.08);
+    border:1px solid rgba(79,156,249,.25);
+    color:var(--muted);
+    font-size:12.5px;
+    line-height:1.5;
+  }
+
+  @media (max-width:600px){
+    #toolbar{ bottom:12px; padding:6px; gap:0; }
+    #toolbar button{ width:34px; height:34px; }
+    #toolbar svg{ width:16px; height:16px; }
+    #zoomLabel{ min-width:48px; font-size:11.5px; }
+    #fileInfo{ top:10px; left:10px; font-size:11.5px; padding:6px 10px; }
+    #fileName{ max-width:160px; }
+    #emptyState .card{ padding:26px 20px 22px; }
+    #hint{ font-size:12px; padding:7px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="viewer">
+  <div id="stage">
+    <div id="emptyState">
+      <div class="card">
+        <div class="glyph">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+            <path d="M14 3v6h6"/>
+            <path d="M9 14l2 2 4-4"/>
+          </svg>
+        </div>
+        <h1>No document loaded</h1>
+        <p>Open an HTML file or folder, or drag &amp; drop it anywhere on this window.</p>
+        <div class="actions">
+          <button class="btn primary" id="emptyOpenFile">Open file</button>
+          <button class="btn" id="emptyOpenFolder">Open folder</button>
+        </div>
+        <p class="tip">Tip: open a folder so relative CSS, JS and images load correctly.</p>
+      </div>
+    </div>
+
+    <div id="frameWrap" hidden>
+      <iframe id="frame" title="Document"
+        sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock"></iframe>
+    </div>
+
+    <div id="fileInfo" hidden>
+      <span class="dot"></span>
+      <span id="fileName">—</span>
+      <span id="fileMeta"></span>
+    </div>
+
+    <div id="dropOverlay" hidden>
+      <div class="dropInner">Drop to open</div>
+    </div>
+  </div>
+
+  <div id="hint" role="status" aria-live="polite"></div>
+
+  <div id="toolbar">
+    <button id="openBtn" title="Open file (O)" aria-label="Open file">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+      </svg>
+    </button>
+    <button id="folderBtn" title="Open folder (Shift+O)" aria-label="Open folder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <path d="M12 11v6M9 14h6"/>
+      </svg>
+    </button>
+    <button id="reloadBtn" title="Reload (R)" aria-label="Reload">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+    </button>
+
+    <div class="sep"></div>
+
+    <button id="zoomOut" title="Zoom out (-)" aria-label="Zoom out">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"/><path d="M8 11h6"/><path d="M20 20l-4.3-4.3"/>
+      </svg>
+    </button>
+    <button id="zoomLabel" title="Reset zoom (0)" aria-label="Reset zoom">100%</button>
+    <button id="zoomIn" title="Zoom in (+)" aria-label="Zoom in">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"/><path d="M11 8v6M8 11h6"/><path d="M20 20l-4.3-4.3"/>
+      </svg>
+    </button>
+
+    <div class="sep"></div>
+
+    <button id="helpBtn" title="Help & shortcuts (?)" aria-label="Help">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1.3 1.1-1.3 2v.2"/>
+        <circle cx="12" cy="17" r=".6" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
+    <button id="fsBtn" title="Toggle fullscreen (F)" aria-label="Toggle fullscreen">
+      <svg class="ic-enter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+        <path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+        <path d="M8 21H5a2 2 0 0 1-2-2v-3"/>
+        <path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+      </svg>
+      <svg class="ic-exit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 8h3a2 2 0 0 0 2-2V3"/>
+        <path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+        <path d="M3 16h3a2 2 0 0 1 2 2v3"/>
+        <path d="M21 16h-3a2 2 0 0 0-2 2v3"/>
+      </svg>
+    </button>
+  </div>
+
+  <div id="helpOverlay" hidden>
+    <div class="helpCard" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <h2 id="helpTitle">HTML Viewer</h2>
+      <p class="sub">Local HTML files, folders, and fullscreen preview.</p>
+
+      <div class="group">
+        <h3>Keyboard shortcuts</h3>
+        <div class="row"><span>Open file</span><span><kbd>O</kbd></span></div>
+        <div class="row"><span>Open folder</span><span><kbd>Shift</kbd> + <kbd>O</kbd></span></div>
+        <div class="row"><span>Reload</span><span><kbd>R</kbd></span></div>
+        <div class="row"><span>Zoom in / out</span><span><kbd>+</kbd> / <kbd>-</kbd></span></div>
+        <div class="row"><span>Reset zoom</span><span><kbd>0</kbd></span></div>
+        <div class="row"><span>Fullscreen</span><span><kbd>F</kbd></span></div>
+        <div class="row"><span>This help</span><span><kbd>?</kbd></span></div>
+        <div class="row"><span>Close help</span><span><kbd>Esc</kbd></span></div>
+      </div>
+
+      <div class="group">
+        <h3>Loading files</h3>
+        <div class="row"><span>Drag &amp; drop anywhere</span><span>one or many files</span></div>
+        <div class="row"><span>Open folder</span><span>resolves relative assets</span></div>
+        <div class="row"><span>Reload from disk</span><span>when opened with the native picker</span></div>
+      </div>
+
+      <div class="group">
+        <h3>Notes</h3>
+        <div class="note">
+          Pages run inside a sandboxed iframe. Scripts run, but
+          <code>localStorage</code>, cookies and same-origin APIs are unavailable.
+          External resources are not affected by the sandbox.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept=".html,.htm,text/html" hidden>
+  <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------------- elements ---------------- */
+  const viewer       = document.getElementById('viewer');
+  const stage        = document.getElementById('stage');
+  const frame        = document.getElementById('frame');
+  const frameWrap    = document.getElementById('frameWrap');
+  const emptyState   = document.getElementById('emptyState');
+  const fileInfo     = document.getElementById('fileInfo');
+  const fileNameEl   = document.getElementById('fileName');
+  const fileMetaEl   = document.getElementById('fileMeta');
+  const dropOverlay  = document.getElementById('dropOverlay');
+  const hint         = document.getElementById('hint');
+  const helpOverlay  = document.getElementById('helpOverlay');
+  const fsBtn        = document.getElementById('fsBtn');
+  const zoomLabel    = document.getElementById('zoomLabel');
+  const fileInput    = document.getElementById('fileInput');
+  const folderInput  = document.getElementById('folderInput');
+
+  /* ---------------- state ---------------- */
+  let fileMap       = new Map();   // path -> File
+  let entryPath     = null;        // path of the HTML entry inside fileMap
+  let singleFileHandle = null;     // FileSystemFileHandle for reload from disk
+  let dirHandle        = null;     // FileSystemDirectoryHandle for reload from disk
+  let zoom             = 1;
+  let dragDepth        = 0;
+  let hintTimer        = null;
+
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 3;
+
+  const syncUrls  = new Map();    // path -> blob URL (string)
+  const asyncUrls = new Map();    // path -> Promise<blob URL>
+
+  /* ---------------- helpers ---------------- */
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  function showHint(msg, ms) {
+    hint.textContent = msg;
+    hint.classList.add('show');
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => hint.classList.remove('show'), ms || 2600);
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(2) + ' MB';
+  }
+
+  const MIME = {
+    html:'text/html', htm:'text/html', xhtml:'application/xhtml+xml',
+    css:'text/css', js:'text/javascript', mjs:'text/javascript',
+    json:'application/json', xml:'application/xml', svg:'image/svg+xml',
+    png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif',
+    webp:'image/webp', avif:'image/avif', ico:'image/x-icon', bmp:'image/bmp',
+    woff:'font/woff', woff2:'font/woff2', ttf:'font/ttf', otf:'font/otf',
+    eot:'application/vnd.ms-fontobject',
+    mp4:'video/mp4', webm:'video/webm', mp3:'audio/mpeg', wav:'audio/wav',
+    ogg:'audio/ogg', pdf:'application/pdf', wasm:'application/wasm',
+    txt:'text/plain', md:'text/markdown'
+  };
+
+  function mimeFor(name) {
+    const ext = name.toLowerCase().split('.').pop();
+    return MIME[ext] || 'application/octet-stream';
+  }
+
+  function revokeAllUrls() {
+    for (const url of syncUrls.values()) {
+      try { URL.revokeObjectURL(url); } catch (e) {}
+    }
+    syncUrls.clear();
+    for (const p of asyncUrls.values()) {
+      Promise.resolve(p)
+        .then(u => { try { URL.revokeObjectURL(u); } catch (e) {} })
+        .catch(() => {});
+    }
+    asyncUrls.clear();
+  }
+
+  /* ---------------- path resolution ---------------- */
+  function resolvePath(base, rel) {
+    if (!rel) return null;
+    const s = String(rel).trim();
+    if (!s) return null;
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(s)) return null;
+    if (s.charAt(0) === '#') return null;
+
+    const qIndex = s.search(/[?#]/);
+    const query  = qIndex >= 0 ? s.slice(qIndex) : '';
+    let path     = qIndex >= 0 ? s.slice(0, qIndex) : s;
+
+    let segments;
+    if (path.charAt(0) === '/') {
+      segments = [];
+      path = path.slice(1);
+    } else {
+      const baseDir = base.includes('/') ? base.slice(0, base.lastIndexOf('/')) : '';
+      segments = baseDir ? baseDir.split('/') : [];
+    }
+
+    for (const seg of path.split('/')) {
+      if (!seg || seg === '.') continue;
+      if (seg === '..') { segments.pop(); continue; }
+      segments.push(seg);
+    }
+    return { path: segments.join('/'), query };
+  }
+
+  /* ---------------- blob URLs ---------------- */
+  function getBlobUrl(path) {
+    if (syncUrls.has(path)) return syncUrls.get(path);
+    const file = fileMap.get(path);
+    if (!file) return null;
+    const mime = mimeFor(path);
+    let blob;
+    try {
+      blob = (file.type === mime) ? file : file.slice(0, file.size, mime);
+    } catch (e) {
+      blob = file;
+    }
+    const url = URL.createObjectURL(blob);
+    syncUrls.set(path, url);
+    return url;
+  }
+
+  function rewriteCssUrls(cssText, cssPath) {
+    if (!cssText) return cssText;
+    return cssText.replace(
+      /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi,
+      (match, quote, rawUrl) => {
+        const r = resolvePath(cssPath, rawUrl);
+        if (r && fileMap.has(r.path)) {
+          const url = getBlobUrl(r.path);
+          if (url) return 'url("' + url + r.query + '")';
+        }
+        return match;
+      }
+    );
+  }
+
+  async function processCss(cssPath) {
+    if (asyncUrls.has(cssPath)) return asyncUrls.get(cssPath);
+    const p = (async () => {
+      const file = fileMap.get(cssPath);
+      if (!file) throw new Error('CSS not found: ' + cssPath);
+      let text = await file.text();
+
+      // 1. Resolve @import recursively
+      const importRe = /@import\s+(?:url\(\s*['"]?([^'")]+)['"]?\s*\)|['"]([^'"]+)['"])\s*([^;]*);/gi;
+      const imports = [];
+      let m;
+      while ((m = importRe.exec(text)) !== null) {
+        imports.push({ raw: m[0], url: m[1] || m[2], rest: m[3] });
+      }
+      for (const imp of imports) {
+        const r = resolvePath(cssPath, imp.url);
+        if (r && fileMap.has(r.path)) {
+          const importedUrl = await processCss(r.path);
+          text = text.split(imp.raw).join('@import url("' + importedUrl + '")' + (imp.rest || '') + ';');
+        }
+      }
+
+      // 2. Rewrite url() references
+      text = rewriteCssUrls(text, cssPath);
+
+      const blob = new Blob([text], { type: 'text/css' });
+      return URL.createObjectURL(blob);
+    })();
+    asyncUrls.set(cssPath, p);
+    return p;
+  }
+
+  /* ---------------- HTML processing ---------------- */
+  const NAV_SCRIPT_BODY = `(function(){
+    function isRel(h){
+      if (!h) return false;
+      if (h.charAt(0) === '#') return false;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(h)) return false;
+      if (h.indexOf('//') === 0) return false;
+      return true;
+    }
+    document.addEventListener('click', function(e){
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var a = t.closest('a[href]');
+      if (!a) return;
+      var h = a.getAttribute('href');
+      if (!isRel(h)) return;
+      e.preventDefault();
+      try { parent.postMessage({type:'htmlviewer:navigate', href: h}, '*'); } catch (_) {}
+    }, true);
+  })();`;
+
+  async function processHtml(htmlPath) {
+    const file = fileMap.get(htmlPath);
+    if (!file) throw new Error('HTML file not found: ' + htmlPath);
+    const htmlText = await file.text();
+    const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+
+    // 1. Linked stylesheets (async)
+    const cssLinks = Array.from(doc.querySelectorAll('link[href]'))
+      .filter(link => /(^|\s)stylesheet(\s|$)/i.test(link.getAttribute('rel') || ''));
+
+    for (const link of cssLinks) {
+      const href = link.getAttribute('href');
+      const r = resolvePath(htmlPath, href);
+      if (r && fileMap.has(r.path)) {
+        try {
+          const blobUrl = await processCss(r.path);
+          link.setAttribute('href', blobUrl + r.query);
+          link.removeAttribute('integrity');
+          link.removeAttribute('crossorigin');
+        } catch (e) {
+          console.warn('[css]', e);
+        }
+      }
+    }
+
+    // 2. Attributes
+    const URL_ATTRS = ['src', 'href', 'poster', 'data', 'background', 'action', 'formaction'];
+    for (const el of doc.querySelectorAll('*')) {
+      const tag = el.tagName;
+      for (const attr of URL_ATTRS) {
+        if (!el.hasAttribute(attr)) continue;
+        if (tag === 'LINK' && attr === 'href' &&
+            /stylesheet/i.test(el.getAttribute('rel') || '')) continue;
+        if (tag === 'A' && attr === 'href') continue;
+
+        const v = el.getAttribute(attr);
+        const r = resolvePath(htmlPath, v);
+        if (r && fileMap.has(r.path)) {
+          const url = getBlobUrl(r.path);
+          if (url) el.setAttribute(attr, url + r.query);
+        }
+      }
+
+      if (el.hasAttribute('srcset')) {
+        const parts = el.getAttribute('srcset').split(',');
+        const rewritten = parts.map(part => {
+          const segs = part.trim().split(/\s+/);
+          const r = resolvePath(htmlPath, segs[0]);
+          if (r && fileMap.has(r.path)) {
+            const blobUrl = getBlobUrl(r.path);
+            if (blobUrl) segs[0] = blobUrl + r.query;
+          }
+          return segs.join(' ');
+        }).join(', ');
+        el.setAttribute('srcset', rewritten);
+      }
+
+      if (el.hasAttribute('style')) {
+        el.setAttribute('style', rewriteCssUrls(el.getAttribute('style'), htmlPath));
+      }
+    }
+
+    // 3. Inline <style>
+    for (const styleEl of doc.querySelectorAll('style')) {
+      styleEl.textContent = rewriteCssUrls(styleEl.textContent || '', htmlPath);
+    }
+
+    // 4. Navigation bridge
+    const scriptEl = doc.createElement('script');
+    scriptEl.textContent = NAV_SCRIPT_BODY;
+    (doc.body || doc.documentElement).appendChild(scriptEl);
+
+    return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+  }
+
+  /* ---------------- file map ---------------- */
+  function buildFileMap(items) {
+    const entries = [];
+    for (const item of items) {
+      let path, file;
+      if (item instanceof File) {
+        file = item;
+        path = (item.webkitRelativePath || item.name || '').replace(/\\/g, '/');
+      } else if (item && item.file) {
+        file = item.file;
+        path = String(item.path || '').replace(/\\/g, '/');
+      }
+      if (path) entries.push({ path, file });
+    }
+
+    // Find common root directory
+    const roots = entries.map(e => {
+      const i = e.path.lastIndexOf('/');
+      return i >= 0 ? e.path.slice(0, i) : '';
+    });
+    let commonRoot = roots[0] || '';
+    for (const r of roots) {
+      while (commonRoot && r !== commonRoot && !r.startsWith(commonRoot + '/')) {
+        const i = commonRoot.lastIndexOf('/');
+        commonRoot = i >= 0 ? commonRoot.slice(0, i) : '';
+      }
+    }
+
+    const map = new Map();
+    for (const e of entries) {
+      let p = e.path;
+      if (commonRoot) {
+        if (p === commonRoot) continue;
+        if (p.startsWith(commonRoot + '/')) p = p.slice(commonRoot.length + 1);
+      }
+      map.set(p, e.file);
+    }
+    return map;
+  }
+
+  function findEntryHtml(map) {
+    const lower = new Map();
+    for (const k of map.keys()) lower.set(k.toLowerCase(), k);
+    for (const name of ['index.html', 'index.htm']) {
+      if (lower.has(name)) return lower.get(name);
+    }
+    const htmls = Array.from(map.keys()).filter(p => /\.html?$/i.test(p));
+    if (!htmls.length) return null;
+    htmls.sort((a, b) => {
+      const da = a.split('/').length, db = b.split('/').length;
+      if (da !== db) return da - db;
+      return a.localeCompare(b);
+    });
+    return htmls[0];
+  }
+
+  /* ---------------- render ---------------- */
+  async function renderEntry() {
+    if (!entryPath) return;
+    try {
+      const html = await processHtml(entryPath);
+      frame.srcdoc = html;
+      frameWrap.hidden = false;
+      emptyState.hidden = true;
+    } catch (e) {
+      console.error('[render]', e);
+      showHint('Failed to render: ' + (e.message || e));
+    }
+  }
+
+  function resetZoom() {
+    zoom = 1;
+    frame.style.zoom = '';
+    zoomLabel.textContent = '100%';
+  }
+
+  function updateFileInfo() {
+    if (!entryPath) {
+      fileInfo.hidden = true;
+      document.title = 'HTML Viewer · Fullscreen';
+      return;
+    }
+    fileInfo.hidden = false;
+    fileNameEl.textContent = entryPath;
+    let count = 0, total = 0;
+    for (const f of fileMap.values()) {
+      count++;
+      total += f.size || 0;
+    }
+    fileMetaEl.textContent = count + ' file' + (count === 1 ? '' : 's') + ' · ' + formatBytes(total);
+    document.title = entryPath + ' · HTML Viewer';
+  }
+
+  /* ---------------- loading ---------------- */
+  async function loadSingleFile(file) {
+    revokeAllUrls();
+    resetZoom();
+    fileMap = new Map([[file.name, file]]);
+    entryPath = file.name;
+    await renderEntry();
+    updateFileInfo();
+  }
+
+  async function loadFiles(items) {
+    revokeAllUrls();
+    resetZoom();
+    const map = buildFileMap(items);
+    if (!map.size) { showHint('No files were found'); return; }
+    const entry = findEntryHtml(map);
+    if (!entry) { showHint('No HTML file found in the selection'); return; }
+    fileMap = map;
+    entryPath = entry;
+    await renderEntry();
+    updateFileInfo();
+  }
+
+  function loadFileList(files) {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    if (list.length === 1 && !list[0].webkitRelativePath) {
+      const f = list[0];
+      if (!/\.html?$/i.test(f.name) && f.type !== 'text/html') {
+        showHint('Please select an .html or .htm file');
+        return;
+      }
+      return loadSingleFile(f);
+    }
+    return loadFiles(list);
+  }
+
+  /* ---------------- native pickers ---------------- */
+  async function collectDirectory(dir, prefix, depth, results) {
+    prefix = prefix || '';
+    depth  = depth || 0;
+    results = results || [];
+    if (depth > 12 || results.length > 800) return results;
+    try {
+      for await (const [name, handle] of dir.entries()) {
+        if (name.charAt(0) === '.' || name === 'node_modules') continue;
+        const path = prefix ? prefix + '/' + name : name;
+        if (handle.kind === 'file') {
+          try {
+            const file = await handle.getFile();
+            if (file.size > 10 * 1024 * 1024) continue;
+            results.push({ path, file });
+          } catch (e) { /* skip unreadable */ }
+        } else if (handle.kind === 'directory') {
+          await collectDirectory(handle, path, depth + 1, results);
+        }
+      }
+    } catch (e) {
+      console.warn('[dir]', e);
+    }
+    return results;
+  }
+
+  async function openFile() {
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{
+            description: 'HTML files',
+            accept: { 'text/html': ['.html', '.htm'] }
+          }],
+          multiple: false
+        });
+        if (!handle) return;
+        singleFileHandle = handle;
+        dirHandle = null;
+        const file = await handle.getFile();
+        await loadSingleFile(file);
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+        console.warn('[fs] open file failed', e);
+      }
+    }
+    fileInput.click();
+  }
+
+  async function openFolder() {
+    if (window.showDirectoryPicker) {
+      try {
+        const handle = await window.showDirectoryPicker({ mode: 'read' });
+        if (!handle) return;
+        dirHandle = handle;
+        singleFileHandle = null;
+        const items = await collectDirectory(handle);
+        if (!items.length) { showHint('That folder appears to be empty'); return; }
+        await loadFiles(items);
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+        console.warn('[fs] open folder failed', e);
+      }
+    }
+    folderInput.click();
+  }
+
+  async function reload() {
+    try {
+      if (singleFileHandle) {
+        const file = await singleFileHandle.getFile();
+        await loadSingleFile(file);
+        showHint('Reloaded from disk');
+        return;
+      }
+      if (dirHandle) {
+        const items = await collectDirectory(dirHandle);
+        if (!items.length) { showHint('Folder is empty'); return; }
+        await loadFiles(items);
+        showHint('Reloaded from folder');
+        return;
+      }
+    } catch (e) {
+      console.warn('[reload]', e);
+      showHint('Reload failed: ' + (e.message || e));
+      return;
+    }
+    if (entryPath) {
+      await renderEntry();
+      showHint('Reloaded');
+    } else {
+      showHint('Nothing to reload — open a file first');
+    }
+  }
+
+  /* ---------------- navigation bridge ---------------- */
+  async function navigateTo(href) {
+    if (!entryPath) return;
+    const r = resolvePath(entryPath, href);
+    if (!r) return;
+    if (!fileMap.has(r.path)) {
+      showHint('Not found: ' + r.path);
+      return;
+    }
+    if (/\.html?$/i.test(r.path)) {
+      entryPath = r.path;
+      await renderEntry();
+      updateFileInfo();
+    } else {
+      const url = getBlobUrl(r.path);
+      if (url) window.open(url + r.query, '_blank', 'noopener');
+    }
+  }
+
+  window.addEventListener('message', function (e) {
+    if (!e.data || typeof e.data !== 'object') return;
+    if (e.data.type !== 'htmlviewer:navigate') return;
+    if (frame.contentWindow && e.source !== frame.contentWindow) return;
+    navigateTo(String(e.data.href || ''));
+  });
+
+  /* ---------------- zoom ---------------- */
+  function setZoom(z) {
+    z = clamp(z, ZOOM_MIN, ZOOM_MAX);
+    if (z === zoom) return;
+    const ratio = z / zoom;
+    const sx = frameWrap.scrollLeft * ratio;
+    const sy = frameWrap.scrollTop  * ratio;
+    zoom = z;
+    frame.style.zoom = zoom === 1 ? '' : zoom;
+    zoomLabel.textContent = Math.round(zoom * 100) + '%';
+    frameWrap.scrollLeft = sx;
+    frameWrap.scrollTop  = sy;
+  }
+
+  /* ---------------- fullscreen ---------------- */
+  function fsElement() {
+    return document.fullscreenElement ||
+           document.webkitFullscreenElement ||
+           document.mozFullScreenElement ||
+           document.msFullscreenElement ||
+           null;
+  }
+
+  function enterFullscreen() {
+    const fn = viewer.requestFullscreen ||
+               viewer.webkitRequestFullscreen ||
+               viewer.mozRequestFullScreen ||
+               viewer.msRequestFullscreen;
+    if (!fn) { showHint('Fullscreen is not supported in this browser'); return; }
+    try {
+      const p = fn.call(viewer);
+      if (p && typeof p.catch === 'function') {
+        p.catch(err => {
+          console.warn('[fullscreen]', err);
+          showHint('Fullscreen was blocked by the browser');
+        });
+      }
+    } catch (err) { console.warn('[fullscreen]', err); }
+  }
+
+  function exitFullscreen() {
+    const fn = document.exitFullscreen ||
+               document.webkitExitFullscreen ||
+               document.mozCancelFullScreen ||
+               document.msExitFullscreen;
+    if (!fn) return;
+    try {
+      const p = fn.call(document);
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (err) { console.warn('[fullscreen]', err); }
+  }
+
+  function toggleFullscreen() {
+    fsElement() ? exitFullscreen() : enterFullscreen();
+  }
+
+  function updateFsUI() {
+    const on = !!fsElement();
+    viewer.classList.toggle('is-fullscreen', on);
+    const label = on ? 'Exit fullscreen (F)' : 'Enter fullscreen (F)';
+    fsBtn.title = label;
+    fsBtn.setAttribute('aria-label', label);
+  }
+
+  ['fullscreenchange', 'webkitfullscreenchange',
+   'mozfullscreenchange', 'MSFullscreenChange']
+    .forEach(ev => document.addEventListener(ev, updateFsUI));
+
+  /* ---------------- help ---------------- */
+  function openHelp() {
+    helpOverlay.hidden = false;
+  }
+  function closeHelp() {
+    helpOverlay.hidden = true;
+  }
+  function toggleHelp() {
+    helpOverlay.hidden ? openHelp() : closeHelp();
+  }
+  helpOverlay.addEventListener('click', e => {
+    if (e.target === helpOverlay) closeHelp();
+  });
+
+  /* ---------------- drop handling ---------------- */
+  document.addEventListener('dragenter', e => {
+    if (!e.dataTransfer) return;
+    const types = e.dataTransfer.types;
+    const hasFiles = types && Array.from(types).indexOf('Files') !== -1;
+    if (!hasFiles) return;
+    dragDepth++;
+    dropOverlay.hidden = false;
+  });
+
+  document.addEventListener('dragleave', e => {
+    if (!e.dataTransfer) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dropOverlay.hidden = true;
+  });
+
+  document.addEventListener('dragover', e => {
+    if (!e.dataTransfer) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+
+  document.addEventListener('drop', async e => {
+    if (!e.dataTransfer) return;
+    e.preventDefault();
+    dragDepth = 0;
+    dropOverlay.hidden = true;
+    const files = e.dataTransfer.files;
+    if (files && files.length) {
+      singleFileHandle = null;
+      dirHandle = null;
+      await loadFileList(files);
+    }
+  });
+
+  /* ---------------- input handlers ---------------- */
+  fileInput.addEventListener('change', async () => {
+    if (fileInput.files && fileInput.files[0]) {
+      singleFileHandle = null;
+      dirHandle = null;
+      await loadSingleFile(fileInput.files[0]);
+    }
+    fileInput.value = '';
+  });
+
+  folderInput.addEventListener('change', async () => {
+    if (folderInput.files && folderInput.files.length) {
+      singleFileHandle = null;
+      dirHandle = null;
+      await loadFiles(Array.from(folderInput.files));
+    }
+    folderInput.value = '';
+  });
+
+  /* ---------------- toolbar wiring ---------------- */
+  document.getElementById('openBtn').addEventListener('click', openFile);
+  document.getElementById('folderBtn').addEventListener('click', openFolder);
+  document.getElementById('reloadBtn').addEventListener('click', reload);
+  document.getElementById('zoomOut').addEventListener('click', () => setZoom(zoom / 1.15));
+  document.getElementById('zoomIn').addEventListener('click', () => setZoom(zoom * 1.15));
+  zoomLabel.addEventListener('click', resetZoom);
+  document.getElementById('helpBtn').addEventListener('click', toggleHelp);
+  fsBtn.addEventListener('click', toggleFullscreen);
+
+  document.getElementById('emptyOpenFile').addEventListener('click', openFile);
+  document.getElementById('emptyOpenFolder').addEventListener('click', openFolder);
+
+  /* ---------------- keyboard ---------------- */
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (document.activeElement === frame) return;
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+
+    const k = e.key;
+
+    if (k === 'Escape') {
+      if (!helpOverlay.hidden) { closeHelp(); e.preventDefault(); return; }
+    }
+    if (k === '?') { e.preventDefault(); toggleHelp(); return; }
+
+    switch (k) {
+      case 'o':
+        e.preventDefault(); openFile(); break;
+      case 'O':
+        e.preventDefault(); openFolder(); break;
+      case 'r':
+      case 'R':
+        e.preventDefault(); reload(); break;
+      case 'f':
+      case 'F':
+        e.preventDefault(); toggleFullscreen(); break;
+      case '+':
+      case '=':
+        e.preventDefault(); setZoom(zoom * 1.15); break;
+      case '-':
+      case '_':
+        e.preventDefault(); setZoom(zoom / 1.15); break;
+      case '0':
+        e.preventDefault(); resetZoom(); break;
+    }
+  });
+
+  /* ---------------- init ---------------- */
+  updateFsUI();
+  updateFileInfo();
+  setTimeout(() => {
+    showHint('Press F for fullscreen · O to open · ? for help', 4500);
+  }, 500);
+
+})();
+</script>
+</body>
+</html>
